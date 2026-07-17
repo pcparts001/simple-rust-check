@@ -11,6 +11,6 @@ publish = false
 #   クライアントA（標準）         → Schannel（失敗パターンを再現）
 #   クライアントB（.use_rustls_tls()）→ rustls（成功パターン）
 [dependencies]
-reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "http2", "cookies", "stream"] }
+reqwest = { version = "0.12", features = ["default-tls", "rustls-tls-native-roots", "http2", "cookies", "stream"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-util = "0.3"
