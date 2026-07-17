@@ -1,0 +1,12 @@
+[package]
+name = "simple-rust-check"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Codex CLI の MCP HTTP パスと同じ TLS スタックを再現する。
+# - default-features = false で native-tls (Schannel) を除外
+# - rustls-tls-native-roots で rustls + aws-lc-rs + OS証明書ストア を使用
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "http2"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
