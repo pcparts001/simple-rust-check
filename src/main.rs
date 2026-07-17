@@ -51,6 +51,6 @@ async fn main() {
     }
 }
 
-fn header(r: &reqwest::Response, name: &str) -> Option<&str> {
+fn header<'a>(r: &'a reqwest::Response, name: &str) -> Option<&'a str> {
     r.headers().get(name).and_then(|v| v.to_str().ok())
 }
