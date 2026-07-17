@@ -24,10 +24,12 @@ enum HttpMethod {
 
 #[tokio::main]
 async fn main() {
-    // クライアントA: native-tls 優先（WindowsではSchannel）← Codex の標準構成と同じ
-    //   default-features 有効 + rustls-tls だと reqwest は native-tls を優先する。
+    // クライアントA: native-tls 強制（WindowsではSchannel）← Codex の失敗パターンを再現
+    //   ※ reqwest 0.12.28 は Client::builder().build() のデフォルトで rustls を選ぶことがあるため、
+    //   明示的に use_native_tls() で Schannel を強制する。
     let native = reqwest::Client::builder()
         .cookie_store(true)
+        .use_native_tls()
         .timeout(Duration::from_secs(20))
         .build()
         .expect("native-tls client build");
