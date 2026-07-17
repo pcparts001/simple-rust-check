@@ -4,13 +4,15 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# Codex CLI の MCP HTTP パスと同じ TLS 構成を再現する。
-# - default-features を有効（= default-tls = native-tls）← Codex の workspace と同じ
-# - rustls-tls-native-roots も追加 ← Codex の http-client と同じ
-# この構成では reqwest は native-tls を優先する（Windows では Schannel）。
-#   クライアントA（標準）         → Schannel（失敗パターンを再現）
-#   クライアントB（.use_rustls_tls()）→ rustls（成功パターン）
+# feature で TLS バックエンドを切り替え、Windows版CodexのSchannel非互換を再現する。
+#   cargo run                                                  → rustls（成功パターン、401）
+#   cargo run --no-default-features --features native-tls-mode  → native-tls（WindowsではSchannel、失敗パターン）
+[features]
+default = ["rustls-mode"]
+rustls-mode = ["reqwest/rustls-tls-native-roots"]
+native-tls-mode = ["reqwest/default-tls"]
+
 [dependencies]
-reqwest = { version = "0.12", features = ["default-tls", "rustls-tls-native-roots", "http2", "cookies", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "cookies", "stream"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-util = "0.3"

@@ -1,13 +1,14 @@
 //! simple-rust-check
 //!
-//! Cisco MCP-GW に対して「native-tls（Windowsでは Schannel）」と「rustls 強制」の
-//! 2つの TLS バックエンドでリクエストを送り、Windows 版 Codex の認証エラー
-//! （Schannel が gateway と TLS ハンドシェイクで失敗する SEC_E_ILLEGAL_MESSAGE）
-//! を 1 プログラム内で再現する。
+//! feature で TLS バックエンドを切り替え、Windows版Codexの Schannel 非互換を再現する。
 //!
-//! 期待結果:
-//! - Windows  : クライアントA（native-tls=Schannel）= ERR / クライアントB（rustls）= 401
-//! - macOS/Linux: 両方 = 401（Schannel ではないため → Windows 固有の裏付け）
+//! 実行:
+//! - `cargo run`                                                  → rustls（成功パターン、401）
+//! - `cargo run --no-default-features --features native-tls-mode` → native-tls（WindowsではSchannel、失敗パターン）
+//!
+//! 期待結果（Windows）:
+//! - rustls        → 401（成功）
+//! - native-tls    → ERR（SEC_E_ILLEGAL_MESSAGE / os error -2146893018）← Codex のバグ再現
 
 use std::time::Duration;
 
@@ -24,40 +25,29 @@ enum HttpMethod {
 
 #[tokio::main]
 async fn main() {
-    // クライアントA: native-tls 強制（WindowsではSchannel）← Codex の失敗パターンを再現
-    //   ※ reqwest 0.12.28 は Client::builder().build() のデフォルトで rustls を選ぶことがあるため、
-    //   明示的に use_native_tls() で Schannel を強制する。
-    let native = reqwest::Client::builder()
+    // feature で TLS バックエンドを表示（コンパイル時に決定）
+    #[cfg(feature = "native-tls-mode")]
+    let tls_name = "native-tls (WindowsではSchannel) ← Codex の失敗パターン";
+    #[cfg(all(feature = "rustls-mode", not(feature = "native-tls-mode")))]
+    let tls_name = "rustls ← 成功パターン";
+    #[cfg(not(any(feature = "native-tls-mode", feature = "rustls-mode")))]
+    let tls_name = "不明（feature 未指定）";
+
+    let client = reqwest::Client::builder()
         .cookie_store(true)
-        .use_native_tls()
         .timeout(Duration::from_secs(20))
         .build()
-        .expect("native-tls client build");
+        .expect("client build");
 
-    // クライアントB: rustls 強制 ← SSL_CERT_FILE ワークアラウンドと同じ
-    let rustls = reqwest::Client::builder()
-        .cookie_store(true)
-        .use_rustls_tls()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .expect("rustls client build");
-
+    println!("TLS backend: {tls_name}");
     println!("対象URL: {URL}\n");
 
-    run("A-1 native-tls GET", &native, HttpMethod::Get).await;
-    run("A-2 native-tls POST initialize", &native, HttpMethod::Post).await;
-    println!();
-    run("B-1 rustls GET", &rustls, HttpMethod::Get).await;
-    run("B-2 rustls POST initialize", &rustls, HttpMethod::Post).await;
-
-    println!();
-    println!("=== 判定 ===");
-    println!("Windows  : A-1/A-2 が ERR（SEC_E_ILLEGAL_MESSAGE）、B-1/B-2 が 401 → Codex のバグ再現");
-    println!("macOS/Linux: すべて 401（Schannel ではない → Windows 固有の裏付け）");
+    run("GET", &client, HttpMethod::Get).await;
+    run("POST initialize", &client, HttpMethod::Post).await;
 }
 
 async fn run(label: &str, client: &reqwest::Client, method: HttpMethod) {
-    println!("--- TEST {label} ---");
+    println!("--- {label} ---");
     let req = match method {
         HttpMethod::Get => client.get(URL).header("MCP-Protocol-Version", "2024-11-05"),
         HttpMethod::Post => client
@@ -73,7 +63,6 @@ async fn run(label: &str, client: &reqwest::Client, method: HttpMethod) {
             let ct = header(&r, "content-type").map(String::from);
             let te = header(&r, "transfer-encoding").map(String::from);
             println!("OK: status={status}, content-type={ct:?}, transfer-encoding={te:?}");
-            // ボディをストリーム読み（held-open SSE ストリームの検知）
             let mut stream = r.bytes_stream();
             let mut total = 0usize;
             let mut held_open = false;
@@ -98,7 +87,6 @@ async fn run(label: &str, client: &reqwest::Client, method: HttpMethod) {
         }
         Err(e) => {
             println!("ERR: {e}");
-            // source chain を表示（SEC_E_ILLEGAL_MESSAGE 等の根本原因が見える）
             let mut src = std::error::Error::source(&e);
             let mut depth = 1;
             while let Some(s) = src {
