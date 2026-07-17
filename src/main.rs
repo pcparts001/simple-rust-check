@@ -30,13 +30,33 @@ async fn main() {
     }
 
     println!();
-    println!("=== TEST 2: POST initialize (Codex MCP 通信 相当) ===");
+    println!("=== TEST 2: POST initialize (Accept = application/json, text/event-stream) ===");
     let body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1.0.0"}}}"#;
     match client
         .post(URL)
         .header("MCP-Protocol-Version", "2024-11-05")
         .header("Content-Type", "application/json")
         .header("Accept", "application/json, text/event-stream")
+        .body(body)
+        .send()
+        .await
+    {
+        Ok(r) => println!(
+            "OK: status={}, content-type={:?}, transfer-encoding={:?}",
+            r.status(),
+            header(&r, "content-type"),
+            header(&r, "transfer-encoding"),
+        ),
+        Err(e) => println!("ERR: {e:?}"),
+    }
+
+    println!();
+    println!("=== TEST 3: POST initialize (Accept = text/event-stream, application/json  ← Codexと同じ順序) ===");
+    match client
+        .post(URL)
+        .header("MCP-Protocol-Version", "2024-11-05")
+        .header("Content-Type", "application/json")
+        .header("Accept", "text/event-stream, application/json")
         .body(body)
         .send()
         .await
