@@ -9,6 +9,6 @@ publish = false
 # - rustls-tls-native-roots で rustls + aws-lc-rs + OS証明書ストア を使用
 # - cookies で cookie store を有効化（Codex の with_chatgpt_cloudflare_cookie_store 相当）
 [dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "http2", "cookies"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "http2", "cookies", "stream"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-util = "0.3"
