@@ -69,6 +69,54 @@ async fn main() {
         ),
         Err(e) => println!("ERR: {e:?}"),
     }
+
+    println!();
+    println!("=== TEST 4: POST initialize (Codex 完全再現: cookie_store有効 + W3C traceparent + Accept順序 + stream ボディ読み) ===");
+    // Codex の with_chatgpt_cloudflare_cookie_store + inject_span_w3c_trace_headers + stream_response を再現
+    let client_codex = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .expect("failed to build codex-style client");
+    // W3C Trace Context 形式の traceparent（Codex が inject_span_w3c_trace_headers で付けるのを模擬）
+    let traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+    match client_codex
+        .post(URL)
+        .header("MCP-Protocol-Version", "2024-11-05")
+        .header("Content-Type", "application/json")
+        .header("Accept", "text/event-stream, application/json")
+        .header("traceparent", traceparent)
+        .body(body)
+        .send()
+        .await
+    {
+        Ok(r) => {
+            println!(
+                "OK: status={}, content-type={:?}, transfer-encoding={:?}",
+                r.status(),
+                header(&r, "content-type"),
+                header(&r, "transfer-encoding"),
+            );
+            // stream_response: true 相当 — ボディをストリームで読む
+            use futures_util::StreamExt;
+            let mut stream = r.bytes_stream();
+            let mut total = 0usize;
+            while let Some(chunk) = stream.next().await {
+                match chunk {
+                    Ok(c) => total += c.len(),
+                    Err(e) => {
+                        println!("stream read err after {total} bytes: {e:?}");
+                        break;
+                    }
+                }
+                if total > 1024 * 1024 {
+                    println!("stream exceeded 1MiB, stopping (held-open stream?)");
+                    break;
+                }
+            }
+            println!("stream ended, total body bytes = {total}");
+        }
+        Err(e) => println!("ERR: {e:?}"),
+    }
 }
 
 fn header<'a>(r: &'a reqwest::Response, name: &str) -> Option<&'a str> {
