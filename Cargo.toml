@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# Codex CLI の MCP HTTP パスと同じ TLS スタックを再現する。
-# - default-features = false で native-tls (Schannel) を除外
-# - rustls-tls-native-roots で rustls + aws-lc-rs + OS証明書ストア を使用
-# - cookies で cookie store を有効化（Codex の with_chatgpt_cloudflare_cookie_store 相当）
+# Codex CLI の MCP HTTP パスと同じ TLS 構成を再現する。
+# - default-features を有効（= default-tls = native-tls）← Codex の workspace と同じ
+# - rustls-tls-native-roots も追加 ← Codex の http-client と同じ
+# この構成では reqwest は native-tls を優先する（Windows では Schannel）。
+#   クライアントA（標準）         → Schannel（失敗パターンを再現）
+#   クライアントB（.use_rustls_tls()）→ rustls（成功パターン）
 [dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "http2", "cookies", "stream"] }
+reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "http2", "cookies", "stream"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-util = "0.3"

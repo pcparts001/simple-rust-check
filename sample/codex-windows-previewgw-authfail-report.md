@@ -111,6 +111,38 @@ codex
 
 `codex-rs/http-client/src/custom_ca.rs` の `build_reqwest_client_with_env` で、カスタム CA がない場合（現在の `:350-368`）でも `use_rustls_tls()` を呼び、**常に rustls を使う**ようにする。これで Windows で Schannel を回避し、プラットフォーム間で TLS 挙動を統一できる。
 
+## 考察: 誰が直すべきか / なぜ Schannel だけが失敗するか
+
+### 「Ciscoが Schannel 対応するべき」ではない
+
+curl も Windows の Schannel を使うが成功している。つまり gateway は **Schannel 自体を拒否しているのではなく、Codex が使う `schannel` crate（Rust から Schannel SSPI を叩く実装）とのみ非互換**。正確には「gateway と `schannel` crate の TLS ネゴシエーションが互換でない」。
+
+### Cisco が意図的に拒否している可能性は低い
+
+TLS ハンドシェイクの段階で失敗（`SEC_E_ILLEGAL_MESSAGE`）しているのは、**プロトコルレベルの純粋な非互換**の特徴。サーバーがクライアントを識別して意図的に拒否する（ボット対策等）なら、ふつう TLS を完遂させてから HTTP 層（403 等）で弾く。TLS メッセージをわざと壊して拒否するのは不自然。意図的というより純粋な実装差。
+
+### 「セキュリティ的に古い」のは schannel crate 側
+
+gateway は AWS 上（IP が AWS）で、AWS API Gateway / CloudFront 系と推定。AWS はセキュリティポリシーで **モダンな TLS（TLS 1.2/1.3、強い暗号スイース）のみ許可** する。実際 gateway は TLS 1.3（`TLS13_AES_128_GCM_SHA256`）を使う。
+
+一方 `schannel` crate は:
+
+- TLS 1.3 サポートが Windows バージョン依存（本格対応は Windows 11 / Server 2022 以降）
+- ここ数年メンテナンスが停滞気味（rustls は超活発）
+- 古い暗号/拡張を提示してネゴシエーション破談、または TLS 1.3 を扱えず失敗、の可能性
+
+つまり「古い TLS 実装（schannel crate）がモダンな gateway に弾かれた」形。「セキュリティ的に古いから」という直感は、**古いのは gateway ではなく schannel crate / Windows 側** として部分的に正しい。
+
+### 責任の所在と推奨
+
+| 立場 | 評価 |
+|---|---|
+| Cisco（gateway） | rustls / OpenSSL / Secure Transport / curl-Schannel と広く互換。標準 TLS 実装済み。不具合とは言えない |
+| `schannel` crate | TLS 1.3 未対応・バグの可能性。ただし第三者 crate で Codex は待てない |
+| **Codex（OpenAI）** | **rustls 統一が最も実効的**。クロスプラットフォーム挙動統一・モダン TLS・活発なメンテ |
+
+設計論としても、Codex が「カスタム CA 未設定時だけ native-tls にフォールバック」するのは **プラットフォーム間で TLS 挙動が割れる原因** になり好ましくない。常に rustls が筋。
+
 ## 7. 調査で否定した仮説（迷走の記録）
 
 1. ❌ **DCR（Dynamic Client Registration）非対応** — simple-mcp-client は DCR 設定でも成功
