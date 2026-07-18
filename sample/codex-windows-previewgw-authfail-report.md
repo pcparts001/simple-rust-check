@@ -229,6 +229,36 @@ JA3: 771,49196-...-47,0-10-11-13-35-23-65281,...   ← 拡張に 43(supported_ve
 
 curl / rustls / Mac の Secure Transport はいずれも TLS 1.3 を提示するため成功。
 
+### 8.6 シミュレーション結果（simple-rust-check で Codex の失敗を完結再現）
+
+`max_tls_version(TLS_1_2)` + native-tls で、Codex と同じ「TLS 1.2 のみ」の ClientHello を送り gateway（ALB、TLS 1.3 要求）で失敗を再現:
+
+| 実行 | TLS バックエンド | 結果 |
+|---|---|---|
+| `cargo run` | rustls（TLS 1.3 提示） | **401 成功** ✅ |
+| `cargo run --no-default-features --features native-tls-mode` | Schannel（TLS 1.2 のみ） | **ERR 失敗** ❌ |
+
+失敗パターンのエラー:
+```
+ERR: error sending request
+  source1: client error (Connect)
+  source2: The function requested is not supported (os error -2146893054)
+```
+
+エラーコードの対比:
+- Codex（schannel デフォルト）: `SEC_E_ILLEGAL_MESSAGE` (0x80090326)
+- シミュレーション（max_tls_version=TLS1.2）: `SEC_E_UNSUPPORTED_FUNCTION` (0x80090302)
+
+両方 Schannel/SSPI の TLS ハンドシェイク失敗。根本原因は同じ（Schannel が TLS 1.3 を扱えない/提示しない）。エラーコードの差は、明示的 TLS 1.2 制限（シミュレーション）vs schannel デフォルト（Codex）のネゴシエーション段階の違い。これで **Codex のバグを1プログラムで完結再現** できた。
+
+### 8.7 ワークアラウンドの環境変数選定（`CODEX_CA_CERTIFICATE` 推奨）
+
+Codex の `custom_ca.rs`（line 61-62, 395）:
+- `CODEX_CA_CERTIFICATE`: **Codex 専用**・優先
+- `SSL_CERT_FILE`: 汎用フォールバック
+
+`SSL_CERT_FILE` は curl/Git/Python(OpenSSL系) など多数のアプリが参照するため、システム/ユーザー環境変数に設定すると**他アプリに影響**する（社内CAが必要なアプリが cacert.pem に社内CAを含まないと失敗）。一方 **`CODEX_CA_CERTIFICATE` は Codex のみが読み、他アプリは無視**するため影響ゼロ。環境変数で対応するなら `CODEX_CA_CERTIFICATE` が安全。
+
 ---
 
 ## 結論
