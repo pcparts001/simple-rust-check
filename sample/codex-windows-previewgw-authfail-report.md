@@ -195,6 +195,42 @@ rustls 強制で Schannel を回避すると成功。根本原因の裏付け完
 
 ---
 
+### 8.5 ClientHello 実物（Wireshark キャプチャ・Codex 0.144.1 直接接続）
+
+Codex（schannel 0.1.28）が gateway に送る ClientHello を Wireshark でキャプチャ:
+
+```
+TLSv1.2 Record Layer: Handshake Protocol: Client Hello
+  Version: TLS 1.2 (0x0303)                         ← TLS 1.2 のみ
+  Cipher Suites (18 suites) — すべて TLS 1.2:
+    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 (0xC02C)
+    TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 (0xC02B)
+    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384  (0xC030)
+    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256  (0xC02F)
+    ...（計18個、すべて TLS 1.2。TLS 1.3 の 0x1301〜0x1303 は一切なし）
+    ※ TLS_RSA_WITH_AES_*（非PFS・弱い）も含む
+  Extensions:
+    server_name (= gateway.agent.preview.aidefense.aiteam.cisco.com)
+    supported_groups, ec_point_formats, signature_algorithms,
+    session_ticket, extended_master_secret, renegotiation_info
+    ★ supported_versions(43) なし / key_share(51) なし
+JA4: t12d180700_4b22cbed5bed_2dae41c691ec   ← 「t12」=TLS1.2, 「d」=ALPNなし
+JA3: 771,49196-...-47,0-10-11-13-35-23-65281,...   ← 拡張に 43(supported_versions) なし
+```
+
+**決定的ポイント（ご指摘の「TLSスイートの違い」が完全に実証された）:**
+1. ClientHello Version = TLS 1.2（0x0303）— TLS 1.3 を示さない
+2. `supported_versions` 拡張が存在しない — TLS 1.3 を提示する拡張そのものがない
+3. `key_share` 拡張がない — TLS 1.3 の鍵共有もない
+4. 暗号スイートは TLS 1.2 のみ 18個（TLS 1.3 の `TLS_AES_*` が一切ない）
+5. RSA 鍵交換の非PFSスイート（`TLS_RSA_WITH_AES_*`）を含む
+
+→ **Codex（schannel 0.1.28）は TLS 1.3 を完全に無効化した状態で ClientHello を送る。** gateway は AWS ALB（TLS 1.3 / モダンTLS要求）。この TLS 1.3 非提示が `SEC_E_ILLEGAL_MESSAGE` の根本原因。
+
+curl / rustls / Mac の Secure Transport はいずれも TLS 1.3 を提示するため成功。
+
+---
+
 ## 結論
 
 Windows 版 Codex の MCP HTTP パスが **Schannel（native-tls）を使うことが原因**。`SSL_CERT_FILE` で rustls を強制すれば回避可能。恒久対策は Codex 側で `custom_ca.rs` を修正し常に rustls を使うようにすること。

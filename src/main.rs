@@ -33,6 +33,16 @@ async fn main() {
     #[cfg(not(any(feature = "native-tls-mode", feature = "rustls-mode")))]
     let tls_name = "不明（feature 未指定）";
 
+    // native-tls-mode のときは TLS 1.2 のみに制限（Codex の schannel 0.1.28 が
+    // TLS 1.3 を提示しない挙動を再現）。rustls-mode は TLS 1.3 を提示（成功側）。
+    #[cfg(feature = "native-tls-mode")]
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .max_tls_version(reqwest::tls::Version::TLS_1_2)
+        .timeout(Duration::from_secs(20))
+        .build()
+        .expect("client build");
+    #[cfg(not(feature = "native-tls-mode"))]
     let client = reqwest::Client::builder()
         .cookie_store(true)
         .timeout(Duration::from_secs(20))
