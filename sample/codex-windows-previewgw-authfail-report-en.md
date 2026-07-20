@@ -259,6 +259,24 @@ Codex's `custom_ca.rs` (lines 61-62, 395):
 
 ---
 
+## Note: Does upgrading (0.144.6 / aws-lc-rs / P-521) fix this?
+
+A Codex maintainer suggested: "upgrade to 0.144.6 (min 0.141.0); 0.141.0 moved the rustls TLS provider to aws-lc-rs, adding support for P-521 (ECDSA secp521r1/SHA-512) certificate signatures that enterprise gateways/load balancers commonly use." Verified against the codebase: **this does NOT fix the issue.**
+
+### Verification
+
+1. **The aws-lc-rs migration is in 0.141.0 (true)**: commit `d5a8117e08` "Use aws-lc-rs for rustls crypto provider" (2026-06-15). `utils/rustls-provider` makes `ECDSA_NISTP521_SHA512` (P-521) mandatory.
+2. **But this is the rustls provider only**: `ensure_rustls_crypto_provider()` adds P-521 support **when rustls is used**. It does not affect Schannel.
+3. **Default with no env var remains Schannel**: `custom_ca.rs`, in the no-CA path (lines 325-331), does NOT call `use_rustls_tls()` — just `builder.build()`. This is **identical from 0.141.0 → 0.144.1 → 0.144.5 → main HEAD**. The aws-lc-rs migration does not change the default (Schannel).
+4. **P-521 and TLS 1.3 are different problems**: P-521 is a certificate *signature algorithm*; this issue is a *TLS version* problem (Schannel not offering TLS 1.3 in the ClientHello). The gateway cert (IdenTrust/HydrantID) is unlikely to be P-521.
+5. **0.144.6 is unreleased** (tags go up to 0.144.5). main HEAD also defaults to Schannel.
+
+### Conclusion
+
+Upgrading to 0.144.6 (or 0.141.0+) does not resolve this — with no env var set, Codex on Windows still uses Schannel and still fails the TLS 1.3 handshake. The permanent fix is to make `custom_ca.rs` always use rustls (Section 6.2).
+
+---
+
 ## Conclusion
 
 The Windows Codex MCP HTTP path uses **Schannel (native-tls)**. Root cause: the `schannel` crate does not offer TLS 1.3 → the AWS ALB (TLS 1.3) handshake fails with `SEC_E_ILLEGAL_MESSAGE`. Fix: force rustls via `CODEX_CA_CERTIFICATE` (Codex-specific, no side effects). Permanent fix: always use rustls in `custom_ca.rs`.

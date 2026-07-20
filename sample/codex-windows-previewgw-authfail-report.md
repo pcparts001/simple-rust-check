@@ -261,6 +261,24 @@ Codex の `custom_ca.rs`（line 61-62, 395）:
 
 ---
 
+## 補足: バージョンアップ（0.144.6 / aws-lc-rs / P-521）で解決するか
+
+Codex 担当者から「0.144.6（min 0.141.0）へアップグレードしてテストしてほしい。0.141.0 で rustls プロバイダを aws-lc-rs に移行し、エンタープライズゲートウェイ/LB がよく使う P-521（ECDSA secp521r1/SHA-512）証明書署名をサポートした」との提案があった。コードベースで検証した結果、**今回の問題は解決しない**。
+
+### 検証結果
+
+1. **aws-lc-rs 移行は 0.141.0 に含まれる（事実）**: コミット `d5a8117e08`「Use aws-lc-rs for rustls crypto provider」(2026-06-15)。`utils/rustls-provider` で `ECDSA_NISTP521_SHA512`（P-521）を必須化。
+2. **しかし、これは rustls プロバイダの話**: `ensure_rustls_crypto_provider()` は **rustls を使うとき** の署名アルゴリズム(P-521)対応。Schannel には無関係。
+3. **環境変数未設定時のデフォルトは Schannel のまま**: `custom_ca.rs` はカスタムCA未設定時（行325-331）に `use_rustls_tls()` を呼ばず、`builder.build()` のみ。これが **0.141.0 → 0.144.1 → 0.144.5 → main HEAD まで同一**。aws-lc-rs 移行は Schannel（デフォルト）に影響しない。
+4. **P-521 と TLS 1.3 は別の問題**: P-521 は証明書の「署名アルゴリズム」、今回の問題は「TLS バージョン」（Schannel が TLS 1.3 を ClientHello に提示しない）。gateway の証明書（IdenTrust/HydrantID）は P-521 でない可能性が高い。
+5. **0.144.6 は未リリース**（タグは 0.144.5 まで）。main HEAD も Schannel デフォルトのまま。
+
+### 結論
+
+0.144.6（または 0.141.0+）にアップグレードしても、環境変数未設定時は Schannel が使われ、TLS 1.3 非提示問題は解決しない。恒久対策は `custom_ca.rs` を常に rustls 化すること（6.2）。
+
+---
+
 ## 結論
 
 Windows 版 Codex の MCP HTTP パスが **Schannel（native-tls）を使うことが原因**。`SSL_CERT_FILE` で rustls を強制すれば回避可能。恒久対策は Codex 側で `custom_ca.rs` を修正し常に rustls を使うようにすること。
